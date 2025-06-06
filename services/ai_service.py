@@ -14,7 +14,7 @@ class AIService:
         
     def is_configured(self) -> bool:
         """Check if the AI service is properly configured"""
-        return bool(self.access_token and self.project_id)
+        return bool(self.access_token and self.project_id and self.access_token != "YOUR_ACCESS_TOKEN")
     
     def generate_sdlc_breakdown(self, project_data: Dict[str, Any]) -> str:
         """Generate SDLC breakdown using IBM Granite model"""
