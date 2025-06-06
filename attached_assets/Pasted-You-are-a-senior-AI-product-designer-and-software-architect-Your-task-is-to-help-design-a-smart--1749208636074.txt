@@ -1,0 +1,52 @@
+You are a senior AI product designer and software architect.
+
+Your task is to help design a smart streamlit application named **SmartSDLC**, which uses AI to automate project breakdown into the Software Development Lifecycle (SDLC) phases based on user input .
+
+The goal is to create a tool where users enter their project description and total time (e.g., 12 weeks), and the app returns a well-structured SDLC phase breakdown with time allocation.
+
+Please provide the following:
+
+1. **Core Features** of the SmartSDLC app
+2. **User Flow** from landing to result
+3. **Backend Architecture** (including use of AI APIs ibm granite)
+4. **Data Flow Diagram** (text-based outline is fine)
+5. **Frontend Components** needed (e.g., form input, result display)
+6. **API Prompt Strategy** – how to construct prompts to send to the AI
+7. **Technology Stack** recommendation (Frontend, Backend, API layer, DB if needed)
+
+Optional:
+- Suggestions for version 2.0 features (e.g., export to PDF, Gantt chart view, team role assignment)
+- Best practices for managing prompt quality and API costs
+
+im giving example for my ai model structure this for my project ask if you need anything 
+import requests
+
+url = "https://eu-gb.ml.cloud.ibm.com/ml/v1/text/chat?version=2023-05-29"
+
+body = {
+	"messages": [{"role":"system","content":"You are Granite, an AI language model developed by IBM in 2024. You are a cautious assistant. You carefully follow instructions. You are helpful and harmless and you follow ethical guidelines and promote positive behavior."},{"role":"user","content":[{"type":"text","text":"hello"}]},{"role":"assistant","content":"Hello! It's a pleasure to assist you today. How may I help you?"}],
+	"project_id": "08334910-e7ec-4e32-990d-be70ab4159ad",
+	"model_id": "ibm/granite-3-8b-instruct",
+	"frequency_penalty": 0,
+	"max_tokens": 2000,
+	"presence_penalty": 0,
+	"temperature": 0,
+	"top_p": 1
+}
+
+headers = {
+	"Accept": "application/json",
+	"Content-Type": "application/json",
+	"Authorization": "Bearer YOUR_ACCESS_TOKEN"
+}
+
+response = requests.post(
+	url,
+	headers=headers,
+	json=body
+)
+
+if response.status_code != 200:
+	raise Exception("Non-200 response: " + str(response.text))
+
+data = response.json()
