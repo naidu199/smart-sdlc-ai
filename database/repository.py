@@ -1,5 +1,6 @@
 from typing import Dict, Any, List, Optional
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from database.models import Project, SDLCBreakdown, SDLCPhase, get_session
 import json
 
@@ -22,6 +23,7 @@ class ProjectRepository:
         
         self.session.add(project)
         self.session.commit()
+        self.session.refresh(project)
         return project.id
     
     def save_sdlc_breakdown(self, project_id: int, ai_response: str, parsed_data: Dict[str, Any]) -> int:
@@ -36,6 +38,7 @@ class ProjectRepository:
         
         self.session.add(breakdown)
         self.session.commit()
+        self.session.refresh(breakdown)
         
         # Save individual phases
         phases = parsed_data.get('phases', [])
@@ -97,27 +100,27 @@ class ProjectRepository:
         # Most popular methodologies
         methodology_stats = self.session.query(
             Project.methodology,
-            self.session.query(Project).filter_by(methodology=Project.methodology).count().label('count')
+            func.count(Project.id).label('count')
         ).group_by(Project.methodology).all()
         
         # Most popular project types
         type_stats = self.session.query(
             Project.project_type,
-            self.session.query(Project).filter_by(project_type=Project.project_type).count().label('count')
+            func.count(Project.id).label('count')
         ).group_by(Project.project_type).all()
         
         # Average duration by project type
         duration_stats = self.session.query(
             Project.project_type,
-            self.session.query(Project.duration_weeks).filter_by(project_type=Project.project_type).func.avg().label('avg_duration')
+            func.avg(Project.duration_weeks).label('avg_duration')
         ).group_by(Project.project_type).all()
         
         return {
             'total_projects': total_projects,
             'total_breakdowns': total_breakdowns,
-            'methodology_distribution': dict(methodology_stats),
-            'project_type_distribution': dict(type_stats),
-            'average_duration_by_type': dict(duration_stats)
+            'methodology_distribution': {row[0]: row[1] for row in methodology_stats},
+            'project_type_distribution': {row[0]: row[1] for row in type_stats},
+            'average_duration_by_type': {row[0]: float(row[1]) if row[1] else 0.0 for row in duration_stats}
         }
     
     def search_projects(self, query: str, limit: int = 20) -> List[Dict[str, Any]]:
@@ -131,10 +134,13 @@ class ProjectRepository:
         for project in projects:
             breakdown = self.session.query(SDLCBreakdown).filter_by(project_id=project.id).order_by(SDLCBreakdown.created_at.desc()).first()
             
+            description_text = project.description
+            truncated_description = description_text[:200] + '...' if len(description_text) > 200 else description_text
+            
             results.append({
                 'id': project.id,
                 'name': project.name,
-                'description': project.description[:200] + '...' if len(project.description) > 200 else project.description,
+                'description': truncated_description,
                 'project_type': project.project_type,
                 'methodology': project.methodology,
                 'duration_weeks': project.duration_weeks,

@@ -10,11 +10,19 @@ from data.sdlc_templates import SDLCTemplates
 from database.models import create_tables
 from database.repository import ProjectRepository
 
+# Initialize database tables
+try:
+    create_tables()
+except Exception as e:
+    st.error(f"Database initialization error: {str(e)}")
+
 # Initialize session state
 if 'sdlc_result' not in st.session_state:
     st.session_state.sdlc_result = None
 if 'processing' not in st.session_state:
     st.session_state.processing = False
+if 'current_page' not in st.session_state:
+    st.session_state.current_page = 'home'
 
 def main():
     st.set_page_config(
@@ -28,9 +36,21 @@ def main():
     st.markdown("**AI-Powered Software Development Lifecycle Planning**")
     st.markdown("Transform your project ideas into structured SDLC phases with intelligent time allocation.")
     
-    # Sidebar for configuration
+    # Navigation
     with st.sidebar:
-        st.header("⚙️ Configuration")
+        st.header("🧭 Navigation")
+        pages = {
+            'home': '🏠 New Project',
+            'history': '📋 Project History', 
+            'analytics': '📊 Analytics'
+        }
+        
+        for page_key, page_name in pages.items():
+            if st.button(page_name, key=f"nav_{page_key}", use_container_width=True):
+                st.session_state.current_page = page_key
+                st.rerun()
+        
+        st.divider()
         
         # API Configuration Check
         ai_service = AIService()
@@ -39,14 +59,29 @@ def main():
         else:
             st.error("❌ AI Service Not Configured")
             st.info("Please ensure IBM_ACCESS_TOKEN and IBM_PROJECT_ID are set in environment variables.")
-            return
         
-        st.header("📊 Quick Stats")
-        if st.session_state.sdlc_result:
-            phases = st.session_state.sdlc_result.get('phases', [])
-            st.metric("Total Phases", len(phases))
-            total_weeks = sum([phase.get('duration_weeks', 0) for phase in phases])
-            st.metric("Total Duration", f"{total_weeks} weeks")
+        # Database status
+        try:
+            repo = ProjectRepository()
+            analytics = repo.get_analytics_data()
+            st.success("✅ Database Connected")
+            st.metric("Total Projects", analytics['total_projects'])
+            st.metric("Total Breakdowns", analytics['total_breakdowns'])
+            repo.close()
+        except Exception as e:
+            st.error("❌ Database Connection Issue")
+            st.caption(f"Error: {str(e)}")
+    
+    # Page routing
+    if st.session_state.current_page == 'home':
+        show_new_project_page()
+    elif st.session_state.current_page == 'history':
+        show_project_history_page()
+    elif st.session_state.current_page == 'analytics':
+        show_analytics_page()
+
+def show_new_project_page():
+    """Display the new project creation page"""
     
     # Main content area
     col1, col2 = st.columns([1, 1])
@@ -138,16 +173,28 @@ def main():
                         'methodology': methodology
                     }
                     
+                    # Save project to database first
+                    repo = ProjectRepository()
+                    project_id = repo.save_project(project_data)
+                    
                     # Generate SDLC breakdown using AI
                     ai_service = AIService()
                     ai_response = ai_service.generate_sdlc_breakdown(project_data)
                     
                     # Parse the AI response
                     parser = SDLCParser()
-                    st.session_state.sdlc_result = parser.parse_ai_response(ai_response, total_duration)
+                    parsed_result = parser.parse_ai_response(ai_response, total_duration)
                     
+                    # Save breakdown to database
+                    breakdown_id = repo.save_sdlc_breakdown(project_id, ai_response, parsed_result)
+                    
+                    # Store in session state for display
+                    st.session_state.sdlc_result = parsed_result
+                    st.session_state.current_project_id = project_id
+                    
+                    repo.close()
                     st.session_state.processing = False
-                    st.success("✅ SDLC breakdown generated successfully!")
+                    st.success("✅ SDLC breakdown generated and saved successfully!")
                     st.rerun()
                     
                 except Exception as e:
@@ -180,6 +227,130 @@ def main():
                 - **Include Constraints**: Timeline pressures, budget limitations, compliance requirements
                 - **Team Context**: Experience level, distributed vs. co-located team
                 """)
+
+def show_project_history_page():
+    """Display the project history page"""
+    st.header("📋 Project History")
+    
+    # Search functionality
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        search_query = st.text_input("🔍 Search projects", placeholder="Search by name or description...")
+    with col2:
+        search_button = st.button("Search", use_container_width=True)
+    
+    try:
+        repo = ProjectRepository()
+        
+        if search_query and search_button:
+            projects = repo.search_projects(search_query)
+        else:
+            projects = repo.get_project_history(limit=20)
+        
+        if projects:
+            st.subheader(f"Found {len(projects)} projects")
+            
+            for project in projects:
+                with st.expander(f"📁 {project['name']} ({project['project_type']})"):
+                    col1, col2, col3 = st.columns([2, 1, 1])
+                    
+                    with col1:
+                        st.markdown(f"**Description:** {project.get('description', 'No description')}")
+                        st.markdown(f"**Methodology:** {project['methodology']}")
+                        
+                    with col2:
+                        st.metric("Duration", f"{project['duration_weeks']} weeks")
+                        st.metric("Team Size", project['team_size'])
+                        
+                    with col3:
+                        st.markdown(f"**Created:** {project['created_at'].strftime('%Y-%m-%d')}")
+                        if project['has_breakdown']:
+                            st.success("✅ Has SDLC Breakdown")
+                            if st.button(f"View Breakdown", key=f"view_{project['id']}"):
+                                breakdown = repo.get_project_breakdown(project['id'])
+                                if breakdown:
+                                    st.session_state.sdlc_result = breakdown
+                                    st.session_state.current_page = 'home'
+                                    st.rerun()
+                        else:
+                            st.warning("⚠️ No Breakdown")
+        else:
+            st.info("No projects found. Create your first project to get started!")
+            
+        repo.close()
+        
+    except Exception as e:
+        st.error(f"Error loading project history: {str(e)}")
+
+def show_analytics_page():
+    """Display the analytics page"""
+    st.header("📊 Analytics Dashboard")
+    
+    try:
+        repo = ProjectRepository()
+        analytics = repo.get_analytics_data()
+        
+        # Overview metrics
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Total Projects", analytics['total_projects'])
+        with col2:
+            st.metric("Total Breakdowns", analytics['total_breakdowns'])
+        with col3:
+            completion_rate = (analytics['total_breakdowns'] / analytics['total_projects'] * 100) if analytics['total_projects'] > 0 else 0
+            st.metric("Completion Rate", f"{completion_rate:.1f}%")
+        with col4:
+            st.metric("Active Templates", "4")  # Static for now
+        
+        st.divider()
+        
+        # Charts
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.subheader("📈 Project Types Distribution")
+            if analytics['project_type_distribution']:
+                type_df = pd.DataFrame(
+                    list(analytics['project_type_distribution'].items()),
+                    columns=['Project Type', 'Count']
+                )
+                fig = px.pie(type_df, values='Count', names='Project Type', 
+                           title="Distribution by Project Type")
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("No project type data available yet.")
+        
+        with col2:
+            st.subheader("🔄 Methodology Preferences")
+            if analytics['methodology_distribution']:
+                method_df = pd.DataFrame(
+                    list(analytics['methodology_distribution'].items()),
+                    columns=['Methodology', 'Count']
+                )
+                fig = px.bar(method_df, x='Methodology', y='Count',
+                           title="Methodology Usage")
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("No methodology data available yet.")
+        
+        # Duration analysis
+        st.subheader("⏱️ Average Duration by Project Type")
+        if analytics['average_duration_by_type']:
+            duration_df = pd.DataFrame(
+                list(analytics['average_duration_by_type'].items()),
+                columns=['Project Type', 'Average Duration (weeks)']
+            )
+            fig = px.bar(duration_df, x='Project Type', y='Average Duration (weeks)',
+                       title="Average Project Duration by Type")
+            fig.update_xaxis(tickangle=45)
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("No duration data available yet.")
+        
+        repo.close()
+        
+    except Exception as e:
+        st.error(f"Error loading analytics: {str(e)}")
 
 def display_sdlc_results(sdlc_result):
     """Display the SDLC breakdown results with visualizations"""
