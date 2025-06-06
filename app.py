@@ -7,6 +7,8 @@ from services.ai_service import AIService
 from utils.sdlc_parser import SDLCParser
 from utils.export_utils import ExportUtils
 from data.sdlc_templates import SDLCTemplates
+from database.models import create_tables
+from database.repository import ProjectRepository
 
 # Initialize session state
 if 'sdlc_result' not in st.session_state:
