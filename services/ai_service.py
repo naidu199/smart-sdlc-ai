@@ -1,80 +1,72 @@
-import requests
-import json
+from ibm_watsonx_ai import APIClient
+from ibm_watsonx_ai.foundation_models import ModelInference
+from ibm_watsonx_ai.metanames import GenTextParamsMetaNames as GenParams
 import os
 from typing import Dict, Any, Optional
 
 class AIService:
-    """Service class for interacting with IBM Granite AI model"""
-    
+    """Service class for interacting with IBM Granite AI model using ibm-watsonx-ai library"""
+
     def __init__(self):
-        self.url = "https://eu-gb.ml.cloud.ibm.com/ml/v1/text/chat?version=2023-05-29"
-        self.access_token = os.getenv("IBM_ACCESS_TOKEN")
+        self.url = "https://eu-gb.ml.cloud.ibm.com"
+        self.api_key = os.getenv("IBM_API_KEY", "gVlNnx0CgD8YMT813nCKEgYlkux2Grh7sN2K2dI0XKQK")
         self.project_id = os.getenv("IBM_PROJECT_ID", "08334910-e7ec-4e32-990d-be70ab4159ad")
         self.model_id = "ibm/granite-3-8b-instruct"
-        
+
+        # Initialize API client
+        credentials = {
+            "apikey": self.api_key,
+            "url": self.url
+        }
+        self.client = APIClient(credentials)
+        self.client.set.default_project(self.project_id)
+
+        # Initialize model
+        self.parameters = {
+            GenParams.DECODING_METHOD: "greedy",  # Matches frequency_penalty=0 and presence_penalty=0
+            GenParams.MAX_NEW_TOKENS: 2000,
+            GenParams.TEMPERATURE: 0.3,  # Matches original temperature
+            GenParams.TOP_P: 0.9,       # Matches original top_p
+            GenParams.STOP_SEQUENCES: []
+        }
+        self.model = ModelInference(
+            model_id=self.model_id,
+            api_client=self.client,
+            project_id=self.project_id,
+            params=self.parameters
+        )
+
     def is_configured(self) -> bool:
         """Check if the AI service is properly configured"""
-        return bool(self.access_token and self.project_id and self.access_token != "YOUR_ACCESS_TOKEN")
-    
+        return bool(self.api_key and self.project_id and self.api_key != "YOUR_API_KEY")
+
     def generate_sdlc_breakdown(self, project_data: Dict[str, Any]) -> str:
         """Generate SDLC breakdown using IBM Granite model"""
-        
+
         if not self.is_configured():
-            raise Exception("AI service not configured. Please set IBM_ACCESS_TOKEN and IBM_PROJECT_ID environment variables.")
-        
+            raise Exception("AI service not configured. Please set IBM_API_KEY and IBM_PROJECT_ID environment variables.")
+
         # Construct the AI prompt
-        prompt = self._construct_sdlc_prompt(project_data)
-        
-        body = {
-            "messages": [
-                {
-                    "role": "system",
-                    "content": "You are Granite, an AI language model developed by IBM in 2024. You are an expert software project manager and SDLC consultant with deep knowledge of software development methodologies, project planning, and time estimation. You provide detailed, structured, and practical SDLC breakdowns."
-                },
-                {
-                    "role": "user",
-                    "content": [{"type": "text", "text": prompt}]
-                }
-            ],
-            "project_id": self.project_id,
-            "model_id": self.model_id,
-            "frequency_penalty": 0,
-            "max_tokens": 2000,
-            "presence_penalty": 0,
-            "temperature": 0.3,  # Lower temperature for more consistent results
-            "top_p": 0.9
-        }
-        
-        headers = {
-            "Accept": "application/json",
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.access_token}"
-        }
-        
+        system_prompt = (
+            "You are Granite, an AI language model developed by IBM in 2024. "
+            "You are an expert software project manager and SDLC consultant with deep knowledge of software development methodologies, project planning, and time estimation. "
+            "You provide detailed, structured, and practical SDLC breakdowns."
+        )
+        user_prompt = self._construct_sdlc_prompt(project_data)
+
         try:
-            response = requests.post(self.url, headers=headers, json=body, timeout=30)
-            
-            if response.status_code != 200:
-                raise Exception(f"API request failed with status {response.status_code}: {response.text}")
-            
-            data = response.json()
-            
-            # Extract the AI response
-            if 'choices' in data and len(data['choices']) > 0:
-                return data['choices'][0]['message']['content']
-            else:
-                raise Exception("Invalid response format from AI service")
-                
-        except requests.exceptions.Timeout:
-            raise Exception("AI service request timed out. Please try again.")
-        except requests.exceptions.RequestException as e:
-            raise Exception(f"Network error when contacting AI service: {str(e)}")
+            # Generate response
+            response = self.model.generate_text(
+                prompt=f"{system_prompt}\n\n{user_prompt}"
+            )
+            # print(f"Generated response: {response}")
+            return response
         except Exception as e:
             raise Exception(f"Error generating SDLC breakdown: {str(e)}")
-    
+
     def _construct_sdlc_prompt(self, project_data: Dict[str, Any]) -> str:
         """Construct a detailed prompt for SDLC breakdown generation"""
-        
+
         prompt = f"""
 As an expert software project manager, analyze the following project and create a detailed Software Development Lifecycle (SDLC) breakdown:
 
@@ -130,3 +122,22 @@ GUIDELINES:
 Please provide ONLY the JSON response, no additional text or formatting.
 """
         return prompt
+
+# Example usage
+if __name__ == "__main__":
+    project_data = {
+        "name": "Task Management App",
+        "description": "A web-based task management application with user authentication and task tracking",
+        "duration_weeks": 10,
+        "team_size": 5,
+        "project_type": "Web Application",
+        "methodology": "Agile"
+    }
+
+    ai_service = AIService()
+    try:
+        print("\n📦 SDLC Breakdown:")
+        result = ai_service.generate_sdlc_breakdown(project_data)
+        print(result)
+    except Exception as e:
+        print(f"Error: {str(e)}")
